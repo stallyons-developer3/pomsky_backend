@@ -316,15 +316,7 @@ router.delete('/delete-account', deleteAccountLimiter, async (req, res) => {
       .eq('id', userId);
     if (profileError) console.error('Delete profiles error:', profileError.message);
 
-    // ── 4. Write audit log (soft record — no sensitive data) ───────
-    await supabase.from('deleted_accounts').insert({
-      user_id:    userId,
-      email:      userEmail,
-      deleted_at: new Date().toISOString(),
-      ip_address: req.ip || req.headers['x-forwarded-for'] || 'unknown'
-    }).catch(e => console.error('Audit log error (non-fatal):', e.message));
-
-    // ── 5. Invalidate all active sessions globally ─────────────────
+    // ── 4. Invalidate all active sessions globally ─────────────────
     await supabase.auth.admin.signOut(userId, 'global')
       .catch(e => console.error('SignOut error (non-fatal):', e.message));
 
