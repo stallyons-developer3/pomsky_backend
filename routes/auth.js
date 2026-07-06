@@ -2,6 +2,17 @@ const express = require('express');
 const router = express.Router();
 const supabase = require('../supabase');
 const { triggerMembershipTag } = require('../utils/activecampaign');
+const rateLimit = require('express-rate-limit');
+
+// ── Rate limiter: max 5 delete attempts per IP per 15 minutes ──
+const deleteAccountLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5,
+  message: { error: 'Too many account deletion attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
 
 // REGISTER
 router.post('/register', async (req, res) => {
@@ -250,4 +261,93 @@ router.post('/reset-password', async (req, res) => {
   }
 });
 
-module.exports = router;
+// DELETE ACCOUNT (fully secure)
+router.delete('/delete-account', deleteAccountLimiter, async (req, res) => {
+  try {
+    // ── 1. Authenticate: verify JWT token ──────────────────────────
+    const token = req.cookies.token || req.headers.authorization?.split(' ')[1];
+    if (!token) {
+      return res.status(401).json({ error: 'Not authenticated.' });
+    }
+
+    const { data: authData, error: authError } = await supabase.auth.getUser(token);
+    if (authError || !authData?.user) {
+      return res.status(401).json({ error: 'Invalid or expired session.' });
+    }
+
+    const userId   = authData.user.id;
+    const userEmail = authData.user.email;
+
+    // ── 2. Require password re-verification ────────────────────────
+    const { password } = req.body;
+    if (!password || typeof password !== 'string' || password.trim().length < 1) {
+      return res.status(400).json({ error: 'Password is required to delete your account.' });
+    }
+
+    const { error: signInError } = await supabase.auth.signInWithPassword({
+      email: userEmail,
+      password: password.trim()
+    });
+
+    if (signInError) {
+      return res.status(403).json({ error: 'Incorrect password. Account not deleted.' });
+    }
+
+    // ── 3. Delete user data in safe order (child tables first) ─────
+
+    // 3a. Delete all litter listings owned by this user
+    const { error: listingsError } = await supabase
+      .from('pomsky_listings')
+      .delete()
+      .eq('breeder_id', userId);
+    if (listingsError) console.error('Delete listings error:', listingsError.message);
+
+    // 3b. Delete breeder profile (if they have one)
+    const { error: breederError } = await supabase
+      .from('breeder_profiles')
+      .delete()
+      .eq('user_id', userId);
+    if (breederError) console.error('Delete breeder_profiles error:', breederError.message);
+
+    // 3c. Delete main profile row
+    const { error: profileError } = await supabase
+      .from('profiles')
+      .delete()
+      .eq('id', userId);
+    if (profileError) console.error('Delete profiles error:', profileError.message);
+
+    // ── 4. Write audit log (soft record — no sensitive data) ───────
+    await supabase.from('deleted_accounts').insert({
+      user_id:    userId,
+      email:      userEmail,
+      deleted_at: new Date().toISOString(),
+      ip_address: req.ip || req.headers['x-forwarded-for'] || 'unknown'
+    }).catch(e => console.error('Audit log error (non-fatal):', e.message));
+
+    // ── 5. Invalidate all active sessions globally ─────────────────
+    await supabase.auth.admin.signOut(userId, 'global')
+      .catch(e => console.error('SignOut error (non-fatal):', e.message));
+
+    // ── 6. Delete the auth user (requires service key) ────────────
+    const { error: deleteError } = await supabase.auth.admin.deleteUser(userId);
+    if (deleteError) {
+      console.error('Auth deleteUser error:', deleteError.message);
+      return res.status(500).json({ error: 'Failed to delete account. Please contact support.' });
+    }
+
+    // ── 7. Clear the session cookie ────────────────────────────────
+    res.clearCookie('token', {
+      httpOnly: true,
+      secure: true,
+      sameSite: 'None'
+    });
+
+    return res.json({ message: 'Your account has been permanently deleted.' });
+
+  } catch (err) {
+    console.error('DELETE ACCOUNT CRASH:', err);
+    res.status(500).json({ error: 'Internal server error.' });
+  }
+});
+
+module.exports = router;
