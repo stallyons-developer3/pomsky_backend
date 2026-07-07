@@ -195,13 +195,13 @@ router.get('/me', async (req, res) => {
       is_approved: breeder?.is_approved || false,
       account_type: profile?.account_type || 'shopper',
       // Multi-role memberships
-      membership_shopper: profile?.membership_shopper || 'shopper_free',
-      membership_breeder: profile?.membership_breeder || 'breeder_free',
-      membership_owner:   profile?.membership_owner   || 'owner_free',
+      membership_shopper: profile?.membership_shopper,
+      membership_breeder: profile?.membership_breeder,
+      membership_owner:   profile?.membership_owner,
       // Statuses (active / paused / cancelling)
-      status_shopper: profile?.status_shopper || 'active',
-      status_breeder: profile?.status_breeder || 'active',
-      status_owner:   profile?.status_owner   || 'active',
+      status_shopper: profile?.status_shopper,
+      status_breeder: profile?.status_breeder,
+      status_owner:   profile?.status_owner,
     });
 
   } catch (err) {
