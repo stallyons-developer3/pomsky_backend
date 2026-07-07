@@ -145,6 +145,7 @@ router.get('/', async (req, res) => {
     if (!isRegisteredUser) {
       const allowedIds = await getPublicImageListingIds();
 
+      // Free/visible listings: contact info is hidden on the grid (shown on individual page only)
       const visible = listings.slice(0, FREE_LIMIT).map(l => ({
         ...l,
         contact_email: null,
@@ -250,26 +251,29 @@ router.get('/:id', async (req, res) => {
 
     if (!isRegisteredUser) {
       const allowedIds = await getPublicImageListingIds();
-      const showImages = allowedIds.has(id);
+      const isFree = allowedIds.has(id);
 
       let breederProfile = null;
       if (data.breeder_profiles) {
         breederProfile = {
           ...data.breeder_profiles,
+          // Hide breeder's private phone/website for guests — listing contact info handled separately
           phone: null,
           website: null
         };
       }
 
+      // Free listings: guests CAN see contact_email and contact_phone on the detail page
+      // Locked listings: contact info is hidden
       return res.json({
         listing: {
           ...data,
-          images: showImages ? data.images : [],
-          contact_email: null,
-          contact_phone: null,
+          images: isFree ? data.images : [],
+          contact_email: isFree ? data.contact_email : null,
+          contact_phone: isFree ? data.contact_phone : null,
           breeder_profiles: breederProfile
         },
-        locked: true
+        locked: !isFree
       });
     }
 
