@@ -13,9 +13,17 @@ const deleteAccountLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// ── Rate limiter: max 30 auth attempts per IP per 15 minutes ──
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { error: 'Too many authentication attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // REGISTER
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   const { email, password, name, account_type, redirect_to } = req.body;
   const effective_account_type = account_type || 'shopper';
   const membershipType = effective_account_type === 'breeder' ? 'breeder_free' : 
@@ -81,7 +89,7 @@ router.post('/register', async (req, res) => {
 });
 
 // LOGIN
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password, redirect_to } = req.body;
 

@@ -6,6 +6,15 @@ const supabase = require('../supabase');
 const { sendEmail } = require('../utils/email');
 const { triggerEmailByTag, triggerMembershipTagById } = require('../utils/activecampaign');
 const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
+const rateLimit = require('express-rate-limit');
+
+const adminLoginLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 10,
+  message: { error: 'Too many login attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 
 // Admin auth middleware
@@ -44,7 +53,7 @@ router.post('/setup', async (req, res) => {
   res.json({ message: 'Admin created!', admin: { id: data.id, email: data.email } });
 });
 
-router.post('/login', async (req, res) => {
+router.post('/login', adminLoginLimiter, async (req, res) => {
   const { email, password } = req.body;
 
   const { data: admin, error } = await supabase
