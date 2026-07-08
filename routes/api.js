@@ -25,12 +25,12 @@ router.get('/dashboard', authMiddleware, async (req, res) => {
     name: profile?.full_name || req.user.email,
     email: profile?.email || req.user.email,
     // Multi-role fields
-    membership_shopper: profile?.membership_shopper || 'shopper_free',
-    membership_breeder: profile?.membership_breeder || 'breeder_free',
-    membership_owner: profile?.membership_owner || 'owner_free',
-    status_shopper: profile?.status_shopper || 'active',
-    status_breeder: profile?.status_breeder || 'active',
-    status_owner: profile?.status_owner || 'active',
+    membership_shopper: profile?.membership_shopper,
+    membership_breeder: profile?.membership_breeder,
+    membership_owner: profile?.membership_owner,
+    status_shopper: profile?.status_shopper,
+    status_breeder: profile?.status_breeder,
+    status_owner: profile?.status_owner,
     // Legacy fields for compatibility
     account_type: profile?.account_type || 'shopper',
     membership_type: profile?.membership_type || 'shopper_free',

@@ -13,10 +13,21 @@ const deleteAccountLimiter = rateLimit({
   legacyHeaders: false,
 });
 
+// ── Rate limiter: max 30 auth attempts per IP per 15 minutes ──
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000,
+  max: 30,
+  message: { error: 'Too many authentication attempts. Please try again later.' },
+  standardHeaders: true,
+  legacyHeaders: false,
+});
 
 // REGISTER
-router.post('/register', async (req, res) => {
+router.post('/register', authLimiter, async (req, res) => {
   const { email, password, name, account_type, redirect_to } = req.body;
+  const effective_account_type = account_type || 'shopper';
+  const membershipType = effective_account_type === 'breeder' ? 'breeder_free' : 
+                         effective_account_type === 'owner' ? 'owner_free' : 'shopper_free';
 
   const { data, error } = await supabase.auth.signUp({
     email,
@@ -25,9 +36,14 @@ router.post('/register', async (req, res) => {
       emailRedirectTo: redirect_to ? `${process.env.FRONTEND_URL}${redirect_to}` : `${process.env.FRONTEND_URL}/login`,
       data: { 
         name,
-        account_type: account_type || 'shopper',
-        membership_type: account_type === 'breeder' ? 'breeder_free' : 
-                         account_type === 'owner' ? 'owner_free' : 'shopper_free'
+        account_type: effective_account_type,
+        membership_type: membershipType,
+        membership_shopper: effective_account_type === 'shopper' ? 'shopper_free' : null,
+        membership_breeder: effective_account_type === 'breeder' ? 'breeder_free' : null,
+        membership_owner: effective_account_type === 'owner' ? 'owner_free' : null,
+        status_shopper: effective_account_type === 'shopper' ? 'active' : null,
+        status_breeder: effective_account_type === 'breeder' ? 'active' : null,
+        status_owner: effective_account_type === 'owner' ? 'active' : null
       } 
     }
   });
@@ -35,33 +51,32 @@ router.post('/register', async (req, res) => {
   if (error) return res.status(400).json({ error: error.message });
   if (!data.user) return res.status(500).json({ error: 'User creation failed' });
 
-  // Fix database defaults: force unused memberships and statuses to null immediately after creation
-  try {
-    const updateData = {};
-    const effective_account_type = account_type || 'shopper';
+  // Fix database defaults: force unused memberships and statuses to null immediately after creation.
+  // We use a slight delay (1.5 seconds) to ensure the Supabase Postgres trigger finishes creating the row first.
+  setTimeout(async () => {
+    try {
+      const updateData = {};
 
-    if (effective_account_type !== 'shopper') {
-      updateData.membership_shopper = null;
-      updateData.status_shopper = null;
+      if (effective_account_type !== 'shopper') {
+        updateData.membership_shopper = null;
+        updateData.status_shopper = null;
+      }
+      if (effective_account_type !== 'breeder') {
+        updateData.membership_breeder = null;
+        updateData.status_breeder = null;
+      }
+      if (effective_account_type !== 'owner') {
+        updateData.membership_owner = null;
+        updateData.status_owner = null;
+      }
+      
+      if (Object.keys(updateData).length > 0) {
+        await supabase.from('profiles').update(updateData).eq('id', data.user.id);
+      }
+    } catch (updateErr) {
+      console.error('Error nullifying memberships:', updateErr);
     }
-    if (effective_account_type !== 'breeder') {
-      updateData.membership_breeder = null;
-      updateData.status_breeder = null;
-    }
-    if (effective_account_type !== 'owner') {
-      updateData.membership_owner = null;
-      updateData.status_owner = null;
-    }
-    
-    if (Object.keys(updateData).length > 0) {
-      await supabase.from('profiles').update(updateData).eq('id', data.user.id);
-    }
-  } catch (updateErr) {
-    console.error('Error nullifying memberships:', updateErr);
-  }
-
-  const membershipType = account_type === 'breeder' ? 'breeder_free' : 
-                         account_type === 'owner' ? 'owner_free' : 'shopper_free';
+  }, 1500);
 
   // Trigger ActiveCampaign tagging for registration
   try {
@@ -74,7 +89,7 @@ router.post('/register', async (req, res) => {
 });
 
 // LOGIN
-router.post('/login', async (req, res) => {
+router.post('/login', authLimiter, async (req, res) => {
   try {
     const { email, password, redirect_to } = req.body;
 
@@ -188,13 +203,13 @@ router.get('/me', async (req, res) => {
       is_approved: breeder?.is_approved || false,
       account_type: profile?.account_type || 'shopper',
       // Multi-role memberships
-      membership_shopper: profile?.membership_shopper || 'shopper_free',
-      membership_breeder: profile?.membership_breeder || 'breeder_free',
-      membership_owner:   profile?.membership_owner   || 'owner_free',
+      membership_shopper: profile?.membership_shopper,
+      membership_breeder: profile?.membership_breeder,
+      membership_owner:   profile?.membership_owner,
       // Statuses (active / paused / cancelling)
-      status_shopper: profile?.status_shopper || 'active',
-      status_breeder: profile?.status_breeder || 'active',
-      status_owner:   profile?.status_owner   || 'active',
+      status_shopper: profile?.status_shopper,
+      status_breeder: profile?.status_breeder,
+      status_owner:   profile?.status_owner,
     });
 
   } catch (err) {

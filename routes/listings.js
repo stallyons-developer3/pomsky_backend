@@ -257,9 +257,9 @@ router.get('/:id', async (req, res) => {
       if (data.breeder_profiles) {
         breederProfile = {
           ...data.breeder_profiles,
-          // Hide breeder's private phone/website for guests — listing contact info handled separately
-          phone: null,
-          website: null
+          // Hide breeder's private phone/website for guests UNLESS the listing is free
+          phone: isFree ? data.breeder_profiles.phone : null,
+          website: isFree ? data.breeder_profiles.website : null
         };
       }
 
