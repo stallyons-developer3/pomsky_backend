@@ -61,14 +61,14 @@ router.post('/login', async (req, res) => {
   const token = jwt.sign(
     { id: admin.id, email: admin.email, name: admin.name },
     process.env.JWT_SECRET,
-    { expiresIn: '7d' }
+    { expiresIn: '24h' }
   );
 
   res.cookie('admin_token', token, {
     httpOnly: true,
     secure: true,
     sameSite: 'none',
-    maxAge: 7 * 24 * 60 * 60 * 1000
+    maxAge: 24 * 60 * 60 * 1000
   });
 
   res.json({ message: 'Logged in', token, admin: { name: admin.name, email: admin.email } });
