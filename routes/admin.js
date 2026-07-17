@@ -416,7 +416,7 @@ router.post('/listings', adminAuth, upload.array('photos'), async (req, res) => 
 // had to be edited straight in Supabase. It now takes the same field set the
 // breeder can edit, plus image handling. Every field is optional: undefined keys
 // are stripped, so a flag-only toggle still works exactly as before.
-router.patch('/listings/:id', adminAuth, upload.array('new_images'), async (req, res) => {
+router.patch('/listings/:id', adminAuth, upload.array('photos'), async (req, res) => {
   try {
     const {
       breeder_id, name, gender, pomsky_type, markings,
