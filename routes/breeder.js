@@ -5,6 +5,7 @@ const router = express.Router();
 const supabase = require('../supabase');
 const authMiddleware = require('../middleware/auth');
 const approvedBreederMiddleware = require('../middleware/approvedBreeder');
+const { canonicalState, getCoords } = require('../utils/usStates');
 
 // const multer = require('multer');
 // const upload = multer();
@@ -92,6 +93,53 @@ router.get('/meta/states', async (req, res) => {
 
   } catch (err) {
     res.status(500).json({ error: 'Failed to load states' });
+  }
+});
+
+// US-only map points for the breeder directory (SRS 4.1 — the "Breeder Map").
+// Same shape and reasoning as GET /listings/meta/map-points: filter to the US
+// allowlist here, at the data layer, and return coordinates so the page never
+// geocodes. No non-US breeder exists today, but the vulnerable Nominatim path
+// did — this closes it so a future England breeder cannot pin the map.
+router.get('/meta/map-points', async (req, res) => {
+  try {
+    // Mirrors the state filter on GET /breeder so the map matches the list
+    const { state } = req.query;
+
+    let query = supabase
+      .from('breeder_profiles')
+      .select('state')
+      .eq('is_approved', true)
+      .not('state', 'is', null);
+
+    if (state) query = query.eq('state', state);
+
+    const { data, error } = await query;
+
+    if (error) throw error;
+
+    const counts = {};
+    let excluded = 0;
+
+    for (const row of data || []) {
+      const name = canonicalState(row.state);
+      if (!name) { excluded++; continue; }
+      counts[name] = (counts[name] || 0) + 1;
+    }
+
+    const points = Object.keys(counts).sort().map(s => {
+      const coords = getCoords(s);
+      return { state: s, count: counts[s], lat: coords[0], lng: coords[1] };
+    });
+
+    res.json({
+      points,
+      total_pins: points.reduce((n, p) => n + p.count, 0),
+      excluded_non_us: excluded
+    });
+
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to load map points' });
   }
 });
 
