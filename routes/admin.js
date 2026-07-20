@@ -312,7 +312,12 @@ router.get('/listings', adminAuth, async (req, res) => {
   res.json({ listings: data });
 });
 
-/* ── Helper: upload litter photos, mirroring routes/user.js ── */
+/* ── Helper: upload litter photos to Supabase Storage ── */
+// The breeder-side equivalents (user.js, breeder.js) log an upload error and
+// carry on, so a save "succeeds" with no image and no warning — which is how a
+// litter ends up on the site with an empty gallery and nobody the wiser. Here a
+// failed upload throws instead, so the route returns a real error the admin can
+// see rather than a silent partial save.
 async function uploadListingImages(files) {
   const urls = [];
   for (const file of files || []) {
@@ -320,12 +325,12 @@ async function uploadListingImages(files) {
     const { error: uploadError } = await supabase.storage
       .from('pomsky-images')
       .upload(fileName, file.buffer, { contentType: file.mimetype });
-    if (!uploadError) {
-      const { data: pub } = supabase.storage.from('pomsky-images').getPublicUrl(fileName);
-      urls.push(pub.publicUrl);
-    } else {
+    if (uploadError) {
       console.error('ADMIN LISTING IMAGE UPLOAD ERROR:', uploadError);
+      throw new Error('Photo upload failed: ' + uploadError.message);
     }
+    const { data: pub } = supabase.storage.from('pomsky-images').getPublicUrl(fileName);
+    urls.push(pub.publicUrl);
   }
   return urls;
 }
