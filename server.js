@@ -7,11 +7,19 @@ const app = express();
 
 // const cors = require('cors');
 
+// Staging/preview origins are supplied per-environment so they never need to be
+// committed here. Comma-separated, e.g. EXTRA_CORS_ORIGINS=https://my-copy.webflow.io,http://localhost:8080
+const extraOrigins = (process.env.EXTRA_CORS_ORIGINS || '')
+  .split(',')
+  .map(o => o.trim())
+  .filter(Boolean);
+
 app.use(cors({
   origin: [
-    'https://pomsky-association.webflow.io', 
+    'https://pomsky-association.webflow.io',
     'https://pomskyownersassociation.com',
-    'https://www.pomskyownersassociation.com'
+    'https://www.pomskyownersassociation.com',
+    ...extraOrigins
   ],
   credentials: true
 }));

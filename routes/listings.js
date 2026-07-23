@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const supabase = require('../supabase');
+const { canonicalState, getCoords } = require('../utils/usStates');
 
 /* ── Helper to find listing IDs that can show images to visitors ── */
 async function getPublicImageListingIds() {
@@ -67,6 +68,65 @@ router.get('/meta/states', async (req, res) => {
 
   } catch (err) {
     console.error("META CATCH ERROR:", err);
+    res.status(500).json({ error: "Server error" });
+  }
+});
+
+/* ================================
+   🔹 GET MAP POINTS — US ONLY (MUST BE BEFORE /:id)
+   Returns ready-to-plot markers so the frontend never geocodes.
+   Non-US locations are dropped here, at the data layer, per SRS 4.1.
+================================ */
+router.get('/meta/map-points', async (req, res) => {
+  try {
+    // Mirrors the filters on GET /listings so the map stays in sync with the grid
+    const { state, gender, type, availability, min_price, max_price, new_litter } = req.query;
+
+    let query = supabase
+      .from('pomsky_listings')
+      .select('state')
+      .eq('is_active', true)
+      .not('state', 'is', null);
+
+    if (state) query = query.eq('state', state);
+    if (gender) query = query.eq('gender', gender);
+    if (type) query = query.eq('pomsky_type', type);
+    if (availability) query = query.eq('availability', availability);
+    if (new_litter === 'true') query = query.eq('is_new_litter', true);
+    if (min_price) query = query.gte('price', Number(min_price));
+    if (max_price) query = query.lte('price', Number(max_price));
+
+    const { data, error } = await query;
+
+    if (error) {
+      console.error("MAP POINTS ERROR:", error);
+      return res.status(400).json({ error: error.message });
+    }
+
+    const counts = {};
+    let excluded = 0;
+
+    // canonicalState both filters and normalises, so 'texas' and 'Texas'
+    // collapse into a single pin instead of two
+    for (const row of data || []) {
+      const name = canonicalState(row.state);
+      if (!name) { excluded++; continue; }
+      counts[name] = (counts[name] || 0) + 1;
+    }
+
+    const points = Object.keys(counts).sort().map(s => {
+      const coords = getCoords(s);
+      return { state: s, count: counts[s], lat: coords[0], lng: coords[1] };
+    });
+
+    res.json({
+      points,
+      total_pins: points.reduce((n, p) => n + p.count, 0),
+      excluded_non_us: excluded
+    });
+
+  } catch (err) {
+    console.error("MAP POINTS CATCH ERROR:", err);
     res.status(500).json({ error: "Server error" });
   }
 });

@@ -2,6 +2,8 @@ const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const multer = require('multer');
+const upload = multer();
 const supabase = require('../supabase');
 const { sendEmail } = require('../utils/email');
 const { triggerEmailByTag, triggerMembershipTagById } = require('../utils/activecampaign');
@@ -310,17 +312,169 @@ router.get('/listings', adminAuth, async (req, res) => {
   res.json({ listings: data });
 });
 
-// Approve or feature a listing
-router.patch('/listings/:id', adminAuth, async (req, res) => {
-  const { is_active, is_featured } = req.body;
+/* ── Helper: upload litter photos to Supabase Storage ── */
+// The breeder-side equivalents (user.js, breeder.js) log an upload error and
+// carry on, so a save "succeeds" with no image and no warning — which is how a
+// litter ends up on the site with an empty gallery and nobody the wiser. Here a
+// failed upload throws instead, so the route returns a real error the admin can
+// see rather than a silent partial save.
+async function uploadListingImages(files) {
+  const urls = [];
+  for (const file of files || []) {
+    const fileName = `listings/${Date.now()}-${Math.random().toString(36).slice(2)}-${file.originalname}`;
+    const { error: uploadError } = await supabase.storage
+      .from('pomsky-images')
+      .upload(fileName, file.buffer, { contentType: file.mimetype });
+    if (uploadError) {
+      console.error('ADMIN LISTING IMAGE UPLOAD ERROR:', uploadError);
+      throw new Error('Photo upload failed: ' + uploadError.message);
+    }
+    const { data: pub } = supabase.storage.from('pomsky-images').getPublicUrl(fileName);
+    urls.push(pub.publicUrl);
+  }
+  return urls;
+}
 
-  const { error } = await supabase
-    .from('pomsky_listings')
-    .update({ is_active, is_featured })
-    .eq('id', req.params.id);
+// Create a litter on a breeder's behalf.
+//
+// Same insert as the breeder's own POST /user/listings — the only difference is
+// where breeder_id comes from. The breeder route derives it from the session;
+// an admin is acting for someone else, so it arrives from the form's selector
+// and user_id has to be looked up from the chosen breeder rather than req.
+//
+// Admin-created litters go live immediately (is_active: true), skipping
+// litter_requests entirely. That queue exists to gate breeder submissions; an
+// admin creating the row IS the approval.
+router.post('/listings', adminAuth, upload.array('photos'), async (req, res) => {
+  try {
+    const {
+      breeder_id, name, gender, pomsky_type, markings,
+      price, price_min, price_max, availability, state, city,
+      description, birth_date, is_new_litter, puppies_available,
+      existing_images
+    } = req.body;
 
-  if (error) return res.status(400).json({ error: error.message });
-  res.json({ message: 'Listing updated!' });
+    if (!breeder_id) {
+      return res.status(400).json({ error: 'Please select a breeder' });
+    }
+
+    const { data: breeder, error: breederError } = await supabase
+      .from('breeder_profiles')
+      .select('id, user_id, is_featured')
+      .eq('id', breeder_id)
+      .maybeSingle();
+
+    if (breederError) return res.status(400).json({ error: breederError.message });
+    if (!breeder) return res.status(400).json({ error: 'Breeder not found' });
+
+    // Gold breeders are auto-featured, same rule as the litter-request approval path
+    let isFeatured = breeder.is_featured || false;
+    if (breeder.user_id) {
+      const { data: userProfile } = await supabase
+        .from('profiles')
+        .select('membership_type, membership_breeder')
+        .eq('id', breeder.user_id)
+        .maybeSingle();
+      const membership = userProfile?.membership_breeder || userProfile?.membership_type;
+      isFeatured = isFeatured || membership === 'breeder_gold';
+    }
+
+    let keptImages = [];
+    if (existing_images) {
+      try { keptImages = JSON.parse(existing_images); } catch { keptImages = []; }
+    }
+    const images = [...keptImages, ...(await uploadListingImages(req.files))];
+
+    const { data, error } = await supabase
+      .from('pomsky_listings')
+      .insert({
+        breeder_id: breeder.id,
+        user_id: breeder.user_id,
+        name, gender, pomsky_type, markings,
+        price: price ? Number(price) : null,
+        price_min: price_min ? Number(price_min) : null,
+        price_max: price_max ? Number(price_max) : null,
+        availability: availability || 'available',
+        state, city,
+        images,
+        description, birth_date: birth_date || null,
+        is_new_litter: is_new_litter === 'true' || is_new_litter === true,
+        puppies_available: puppies_available ? Number(puppies_available) : null,
+        is_active: true,
+        is_featured: isFeatured
+      })
+      .select()
+      .single();
+
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ message: 'Litter created!', listing: data });
+
+  } catch (err) {
+    console.error('ADMIN CREATE LISTING ERROR:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
+// Edit a litter, or just toggle its active/featured flags.
+//
+// Previously this accepted only is_active and is_featured, which is why litters
+// had to be edited straight in Supabase. It now takes the same field set the
+// breeder can edit, plus image handling. Every field is optional: undefined keys
+// are stripped, so a flag-only toggle still works exactly as before.
+router.patch('/listings/:id', adminAuth, upload.array('photos'), async (req, res) => {
+  try {
+    const {
+      breeder_id, name, gender, pomsky_type, markings,
+      price, price_min, price_max, availability, state, city,
+      description, birth_date, is_new_litter, puppies_available,
+      is_active, is_featured, existing_images
+    } = req.body;
+
+    const bool = v => v === 'true' || v === true;
+    const num = v => (v === '' || v === undefined || v === null) ? undefined : Number(v);
+
+    const payload = {
+      breeder_id, name, gender, pomsky_type, markings,
+      price: num(price),
+      price_min: num(price_min),
+      price_max: num(price_max),
+      availability, state, city,
+      description, birth_date,
+      puppies_available: num(puppies_available),
+      is_new_litter: is_new_litter === undefined ? undefined : bool(is_new_litter),
+      is_active:     is_active     === undefined ? undefined : bool(is_active),
+      is_featured:   is_featured   === undefined ? undefined : bool(is_featured)
+    };
+
+    // Only touch images when the form actually sent some, so a flag toggle
+    // cannot wipe a listing's photos
+    const files = req.files || [];
+    if (existing_images !== undefined || files.length) {
+      let keptImages = [];
+      if (existing_images) {
+        try { keptImages = JSON.parse(existing_images); } catch { keptImages = []; }
+      }
+      payload.images = [...keptImages, ...(await uploadListingImages(files))];
+    }
+
+    Object.keys(payload).forEach(k => payload[k] === undefined && delete payload[k]);
+
+    if (!Object.keys(payload).length) {
+      return res.status(400).json({ error: 'Nothing to update' });
+    }
+
+    const { error } = await supabase
+      .from('pomsky_listings')
+      .update(payload)
+      .eq('id', req.params.id);
+
+    if (error) return res.status(400).json({ error: error.message });
+    res.json({ message: 'Listing updated!' });
+
+  } catch (err) {
+    console.error('ADMIN UPDATE LISTING ERROR:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
 });
 
 // Delete a listing
@@ -336,13 +490,20 @@ router.delete('/listings/:id', adminAuth, async (req, res) => {
 
 // ── Breeders Management ──
 
-// Get all breeder profiles
+// Get all breeder profiles.
+// ?approved=true narrows this to active breeders — the litter form's selector
+// needs that (FR-02), while the Breeders tab still needs the unfiltered list to
+// approve pending ones, so this stays opt-in rather than becoming the default.
 router.get('/breeders', adminAuth, async (req, res) => {
   try {
-    const { data: breeders, error } = await supabase
+    let query = supabase
       .from('breeder_profiles')
       .select('*')
       .order('created_at', { ascending: false });
+
+    if (req.query.approved === 'true') query = query.eq('is_approved', true);
+
+    const { data: breeders, error } = await query;
 
     if (error) return res.status(400).json({ error: error.message });
 
