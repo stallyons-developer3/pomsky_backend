@@ -832,7 +832,7 @@ router.patch('/breeder-requests/:id/approve', adminAuth, async (req, res) => {
 
     const breederPayload = {
       user_id: request.user_id,
-      breeder_name: request.breeder_name,
+      breeder_name: request.breeder_name || request.business_name || 'Unnamed Breeder',
       business_name: request.business_name,
       state: request.state,
       city: request.city,
@@ -1028,7 +1028,7 @@ router.patch('/breeder-requests/:id', adminAuth, async (req, res) => {
         };
 
         const breederPayload = {
-          breeder_name: request.breeder_name,
+          breeder_name: request.breeder_name || request.business_name || 'Unnamed Breeder',
           business_name: request.business_name,
           state: request.state,
           city: request.city,
