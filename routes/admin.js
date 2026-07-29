@@ -351,6 +351,7 @@ router.post('/listings', adminAuth, upload.array('photos'), async (req, res) => 
       breeder_id, name, gender, pomsky_type, markings,
       price, price_min, price_max, availability, state, city,
       description, birth_date, is_new_litter, puppies_available,
+      contact_email, contact_phone, url, next_litter,
       existing_images
     } = req.body;
 
@@ -398,6 +399,10 @@ router.post('/listings', adminAuth, upload.array('photos'), async (req, res) => 
         state, city,
         images,
         description, birth_date: birth_date || null,
+        contact_email: contact_email || null,
+        contact_phone: contact_phone || null,
+        url: url || null,
+        next_litter: next_litter || null,
         is_new_litter: is_new_litter === 'true' || is_new_litter === true,
         puppies_available: puppies_available ? Number(puppies_available) : null,
         is_active: true,
@@ -427,6 +432,7 @@ router.patch('/listings/:id', adminAuth, upload.array('photos'), async (req, res
       breeder_id, name, gender, pomsky_type, markings,
       price, price_min, price_max, availability, state, city,
       description, birth_date, is_new_litter, puppies_available,
+      contact_email, contact_phone, url, next_litter,
       is_active, is_featured, existing_images
     } = req.body;
 
@@ -440,6 +446,7 @@ router.patch('/listings/:id', adminAuth, upload.array('photos'), async (req, res
       price_max: num(price_max),
       availability, state, city,
       description, birth_date,
+      contact_email, contact_phone, url, next_litter,
       puppies_available: num(puppies_available),
       is_new_litter: is_new_litter === undefined ? undefined : bool(is_new_litter),
       is_active:     is_active     === undefined ? undefined : bool(is_active),
