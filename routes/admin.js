@@ -1020,11 +1020,17 @@ router.patch('/breeder-requests/:id', adminAuth, async (req, res) => {
       .single();
 
     if (request) {
-      const { data: existingBreeder } = await supabase
-        .from('breeder_profiles')
-        .select('id')
-        .eq('user_id', request.user_id)
-        .maybeSingle();
+      // Match the profile by user_id when present; otherwise fall back to
+      // business_name / email so mirrored breeders (user_id NULL) still sync.
+      const findProfile = async (col, val) => {
+        if (!val) return null;
+        const { data } = await supabase
+          .from('breeder_profiles').select('id').eq(col, val).limit(1);
+        return (data && data[0]) || null;
+      };
+      const existingBreeder = await findProfile('user_id', request.user_id)
+        || await findProfile('business_name', request.business_name)
+        || await findProfile('email', request.email);
 
       if (existingBreeder) {
         const getSingleVal = (val) => {
@@ -1079,7 +1085,7 @@ router.patch('/breeder-requests/:id', adminAuth, async (req, res) => {
         await supabase
           .from('breeder_profiles')
           .update(breederPayload)
-          .eq('user_id', request.user_id);
+          .eq('id', existingBreeder.id);
       }
     }
   } catch (syncErr) {
