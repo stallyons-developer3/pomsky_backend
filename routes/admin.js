@@ -102,6 +102,52 @@ router.get('/users', adminAuth, async (req, res) => {
   res.json({ users: data });
 });
 
+// Create a new site member (admin-only). Mirrors /auth/register, but the account
+// is pre-confirmed (no verification email). The on_auth_user_created trigger
+// creates the profiles row and DB defaults seed the membership_* columns, so we
+// only null out the roles the admin didn't pick — exactly like registration.
+router.post('/users', adminAuth, async (req, res) => {
+  const { email, password, name, account_type } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const effective_account_type = account_type || 'shopper';
+  const membershipType = effective_account_type === 'breeder' ? 'breeder_free' :
+                         effective_account_type === 'owner'   ? 'owner_free'   : 'shopper_free';
+
+  try {
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        name,
+        account_type: effective_account_type,
+        membership_type: membershipType
+      }
+    });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    if (data?.user?.id) {
+      const updateData = {};
+      if (effective_account_type !== 'shopper') updateData.membership_shopper = null;
+      if (effective_account_type !== 'breeder') updateData.membership_breeder = null;
+      if (effective_account_type !== 'owner')   updateData.membership_owner   = null;
+      if (Object.keys(updateData).length) {
+        await supabase.from('profiles').update(updateData).eq('id', data.user.id);
+      }
+    }
+
+    res.json({ message: 'User created!', user: { id: data.user.id, email: data.user.email } });
+  } catch (err) {
+    console.error('ADMIN CREATE USER ERROR:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.patch('/users/:id/membership', adminAuth, async (req, res) => {
   const {
     membership_shopper, status_shopper,
@@ -351,6 +397,7 @@ router.post('/listings', adminAuth, upload.array('photos'), async (req, res) => 
       breeder_id, name, gender, pomsky_type, markings,
       price, price_min, price_max, availability, state, city,
       description, birth_date, is_new_litter, puppies_available,
+      contact_email, contact_phone, url, next_litter,
       existing_images
     } = req.body;
 
@@ -398,6 +445,10 @@ router.post('/listings', adminAuth, upload.array('photos'), async (req, res) => 
         state, city,
         images,
         description, birth_date: birth_date || null,
+        contact_email: contact_email || null,
+        contact_phone: contact_phone || null,
+        url: url || null,
+        next_litter: next_litter || null,
         is_new_litter: is_new_litter === 'true' || is_new_litter === true,
         puppies_available: puppies_available ? Number(puppies_available) : null,
         is_active: true,
@@ -427,6 +478,7 @@ router.patch('/listings/:id', adminAuth, upload.array('photos'), async (req, res
       breeder_id, name, gender, pomsky_type, markings,
       price, price_min, price_max, availability, state, city,
       description, birth_date, is_new_litter, puppies_available,
+      contact_email, contact_phone, url, next_litter,
       is_active, is_featured, existing_images
     } = req.body;
 
@@ -440,6 +492,7 @@ router.patch('/listings/:id', adminAuth, upload.array('photos'), async (req, res
       price_max: num(price_max),
       availability, state, city,
       description, birth_date,
+      contact_email, contact_phone, url, next_litter,
       puppies_available: num(puppies_available),
       is_new_litter: is_new_litter === undefined ? undefined : bool(is_new_litter),
       is_active:     is_active     === undefined ? undefined : bool(is_active),
@@ -832,7 +885,7 @@ router.patch('/breeder-requests/:id/approve', adminAuth, async (req, res) => {
 
     const breederPayload = {
       user_id: request.user_id,
-      breeder_name: request.breeder_name,
+      breeder_name: request.breeder_name || request.business_name || 'Unnamed Breeder',
       business_name: request.business_name,
       state: request.state,
       city: request.city,
@@ -1013,11 +1066,17 @@ router.patch('/breeder-requests/:id', adminAuth, async (req, res) => {
       .single();
 
     if (request) {
-      const { data: existingBreeder } = await supabase
-        .from('breeder_profiles')
-        .select('id')
-        .eq('user_id', request.user_id)
-        .maybeSingle();
+      // Match the profile by user_id when present; otherwise fall back to
+      // business_name / email so mirrored breeders (user_id NULL) still sync.
+      const findProfile = async (col, val) => {
+        if (!val) return null;
+        const { data } = await supabase
+          .from('breeder_profiles').select('id').eq(col, val).limit(1);
+        return (data && data[0]) || null;
+      };
+      const existingBreeder = await findProfile('user_id', request.user_id)
+        || await findProfile('business_name', request.business_name)
+        || await findProfile('email', request.email);
 
       if (existingBreeder) {
         const getSingleVal = (val) => {
@@ -1028,7 +1087,7 @@ router.patch('/breeder-requests/:id', adminAuth, async (req, res) => {
         };
 
         const breederPayload = {
-          breeder_name: request.breeder_name,
+          breeder_name: request.breeder_name || request.business_name || 'Unnamed Breeder',
           business_name: request.business_name,
           state: request.state,
           city: request.city,
@@ -1072,7 +1131,7 @@ router.patch('/breeder-requests/:id', adminAuth, async (req, res) => {
         await supabase
           .from('breeder_profiles')
           .update(breederPayload)
-          .eq('user_id', request.user_id);
+          .eq('id', existingBreeder.id);
       }
     }
   } catch (syncErr) {
