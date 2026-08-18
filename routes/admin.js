@@ -102,6 +102,52 @@ router.get('/users', adminAuth, async (req, res) => {
   res.json({ users: data });
 });
 
+// Create a new site member (admin-only). Mirrors /auth/register, but the account
+// is pre-confirmed (no verification email). The on_auth_user_created trigger
+// creates the profiles row and DB defaults seed the membership_* columns, so we
+// only null out the roles the admin didn't pick — exactly like registration.
+router.post('/users', adminAuth, async (req, res) => {
+  const { email, password, name, account_type } = req.body;
+
+  if (!email || !password) {
+    return res.status(400).json({ error: 'Email and password are required' });
+  }
+
+  const effective_account_type = account_type || 'shopper';
+  const membershipType = effective_account_type === 'breeder' ? 'breeder_free' :
+                         effective_account_type === 'owner'   ? 'owner_free'   : 'shopper_free';
+
+  try {
+    const { data, error } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+      user_metadata: {
+        name,
+        account_type: effective_account_type,
+        membership_type: membershipType
+      }
+    });
+
+    if (error) return res.status(400).json({ error: error.message });
+
+    if (data?.user?.id) {
+      const updateData = {};
+      if (effective_account_type !== 'shopper') updateData.membership_shopper = null;
+      if (effective_account_type !== 'breeder') updateData.membership_breeder = null;
+      if (effective_account_type !== 'owner')   updateData.membership_owner   = null;
+      if (Object.keys(updateData).length) {
+        await supabase.from('profiles').update(updateData).eq('id', data.user.id);
+      }
+    }
+
+    res.json({ message: 'User created!', user: { id: data.user.id, email: data.user.email } });
+  } catch (err) {
+    console.error('ADMIN CREATE USER ERROR:', err);
+    res.status(500).json({ error: 'Server error' });
+  }
+});
+
 router.patch('/users/:id/membership', adminAuth, async (req, res) => {
   const {
     membership_shopper, status_shopper,
