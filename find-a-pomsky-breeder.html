@@ -1,0 +1,683 @@
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+<div id="breeders-page">
+  <div class="page-layout">
+
+    <!-- LEFT SIDEBAR -->
+    <aside class="sidebar">
+      <div style="margin-bottom: 24px;">
+        <div class="sidebar-label">Search Breeders</div>
+        <input 
+          type="text" 
+          id="breeder-search" 
+          class="search-input" 
+          placeholder="Name or kennel..." 
+          oninput="handleSearch(this.value)"
+        />
+      </div>
+
+      <details class="filter-group" open>
+        <summary>Filter by State</summary>
+        <div class="filter-options" id="state-list">
+          <!-- Populated by JS -->
+        </div>
+      </details>
+    </aside>
+
+    <!-- RIGHT MAIN CONTENT -->
+    <main class="main-content">
+      <div id="breeder-map"></div>
+      
+      <h1 class="featured-title">Featured POA Pomsky Breeders</h1>
+      <div id="featured-section"></div>
+
+      <h2 class="all-title">All POA-Approved Pomsky Breeders</h2>
+      <div id="other-section"></div>
+    </main>
+
+  </div>
+</div>
+
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Quicksand:wght@400;500;600;700;800&display=swap');
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+#breeders-page {
+  max-width: 1200px;
+  margin: auto;
+  font-family: 'Quicksand', 'Trebuchet MS', 'Segoe UI', system-ui, -apple-system, sans-serif;
+  color: #15231E;
+  width: 100%;
+  overflow-x: hidden;
+}
+
+/* ── Layout ── */
+.page-layout {
+  display: flex;
+  gap: 40px;
+  padding: 32px 20px;
+  align-items: flex-start;
+}
+
+/* ── Sidebar ── */
+.sidebar {
+  width: 200px;
+  flex-shrink: 0;
+  position: sticky;
+  top: 20px;
+}
+
+.sidebar-label {
+  font-weight: 700;
+  font-size: 13px;
+  color: #4B5563;
+  margin-bottom: 10px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #E5E7EB;
+}
+
+.search-input {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #E5E7EB;
+  border-radius: 8px;
+  font-family: inherit;
+  font-size: 13px;
+  outline: none;
+  transition: border-color 0.2s;
+}
+
+.search-input:focus {
+  border-color: #157A93;
+}
+
+.filter-group {
+  border-bottom: 1px solid #E5E7EB;
+  padding: 12px 0;
+}
+
+.filter-group summary {
+  font-size: 14px;
+  font-weight: 700;
+  color: #4B5563;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+}
+
+.filter-group summary::-webkit-details-marker { display: none; }
+.filter-group summary::after { content: '▾'; font-size: 12px; }
+details[open] summary::after { content: '▴'; }
+
+.filter-options {
+  padding-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-height: 350px;
+  overflow-y: auto;
+}
+
+.filter-options label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  color: #5D6C7B;
+  cursor: pointer;
+}
+
+.filter-options input[type="radio"] {
+  accent-color: #2094B1;
+  width: 14px;
+  height: 14px;
+  flex-shrink: 0;
+}
+
+/* ── Main ── */
+.main-content { flex: 1; min-width: 0; }
+
+/* ── Map ── */
+#breeder-map {
+  width: 100%;
+  height: 350px;
+  border-radius: 12px;
+  margin-bottom: 24px;
+  z-index: 1;
+  border: 1px solid #E5E7EB;
+}
+
+.map-marker-custom {
+  background: #2094B1;
+  color: white;
+  border-radius: 50%;
+  border: 2px solid white;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+  font-weight: bold;
+  box-shadow: 0 2px 5px rgba(0,0,0,0.3);
+}
+
+/* ── Section Titles ── */
+.featured-title {
+  font-size: 2.4rem;
+  font-weight: 800;
+  color: #15231E;
+  margin-bottom: 8px;
+  line-height: 1.2;
+  overflow-wrap: break-word;
+}
+
+.all-title {
+  font-size: 2.2rem;
+  font-weight: 800;
+  color: #15231E;
+  margin: 48px 0 8px;
+  overflow-wrap: break-word;
+}
+
+/* ── Breeder Card ── */
+.breeder-card {
+  display: flex;
+  gap: 24px;
+  padding: 28px 0;
+  border-top: 1.5px dashed #E5E7EB;
+  align-items: flex-start;
+  min-width: 0;
+}
+
+.breeder-card:first-child { border-top: none; }
+
+.breeder-img-col {
+  width: 130px;
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.breeder-img {
+  width: 130px;
+  height: 130px;
+  border-radius: 10px;
+  object-fit: cover;
+  background: #F3F4F6;
+  border: 1px solid #E5E7EB;
+}
+
+.breeder-img-name {
+  font-size: 11px;
+  font-weight: 700;
+  text-align: center;
+  color: #4B5563;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  line-height: 1.3;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.breeder-info { flex: 1; min-width: 0; }
+
+.breeder-header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 10px;
+}
+
+.breeder-business-name {
+  font-size: 22px;
+  font-weight: 800;
+  color: #15231E;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.badge-featured {
+  background: #FFD000;
+  color: #15231E;
+  font-size: 10px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+  letter-spacing: 0.3px;
+  white-space: nowrap;
+}
+
+.bio-container { margin-bottom: 12px; }
+.breeder-bio {
+  font-size: 14px;
+  color: #4B5563;
+  line-height: 1.7;
+  margin-bottom: 4px;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.read-more-btn {
+  background: none;
+  border: none;
+  color: #157A93;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+  padding: 0;
+  font-family: inherit;
+}
+.read-more-btn:hover { text-decoration: underline; }
+
+.breeder-location {
+  font-weight: bold;
+  font-size: 13px;
+  color: #5D6C7B;
+  margin-bottom: 12px;
+  overflow-wrap: break-word;
+}
+
+.breeder-contact {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 0;
+  font-size: 13px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.breeder-contact .contact-item {
+  color: #4B5563;
+  padding-right: 16px;
+  margin-right: 8px;
+  border-right: 1px solid #E5E7EB;
+  overflow-wrap: break-word;
+  word-break: break-word;
+  max-width: 100%;
+}
+
+.breeder-contact .contact-item:last-child {
+  border-right: none;
+  padding-right: 0;
+  margin-right: 0;
+}
+
+.breeder-contact a {
+  color: #157A93;
+  text-decoration: none;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+.breeder-contact a:hover { text-decoration: underline; }
+
+.breeder-socials {
+  display: flex;
+  gap: 14px;
+  margin-top: 6px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+
+.social-icon {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #157A93;
+  text-decoration: none;
+  transition: opacity 0.2s, transform 0.2s;
+  flex-shrink: 0;
+}
+.social-icon:hover { opacity: 0.7; transform: scale(1.12); }
+.social-icon svg { display: block; }
+
+.no-results {
+  padding: 24px 0;
+  color: #9CA3AF;
+  font-size: 14px;
+}
+
+.view-profile-btn {
+  display: inline-block;
+  background: #157A93;
+  color: white;
+  text-decoration: none;
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 700;
+  transition: background 0.2s;
+}
+
+.view-profile-btn:hover {
+  background: #0F6076;
+}
+
+/* ── Responsive ── */
+
+/* Tablet */
+@media (max-width: 860px) {
+  .page-layout { flex-direction: column; gap: 24px; padding: 24px 16px; }
+  .sidebar { width: 100%; position: relative; top: 0; }
+  .filter-options { flex-direction: row; flex-wrap: wrap; gap: 12px; max-height: none; }
+  .featured-title, .all-title { font-size: 1.8rem; }
+  #breeder-map { height: 300px; }
+}
+
+/* Large mobile / small tablet */
+@media (max-width: 640px) {
+  .page-layout { padding: 20px 14px; gap: 20px; }
+  #breeder-map { height: 260px; margin-bottom: 20px; }
+  .featured-title { font-size: 1.5rem; }
+  .all-title { font-size: 1.4rem; margin: 36px 0 8px; }
+  .breeder-card { padding: 22px 0; gap: 18px; }
+  .breeder-business-name { font-size: 19px; }
+  .breeder-contact { font-size: 12px; }
+  .breeder-contact .contact-item { padding-right: 12px; margin-right: 6px; }
+  .search-input { font-size: 16px; } /* prevents iOS zoom on focus */
+}
+
+/* Mobile: stack image above info */
+@media (max-width: 500px) {
+  .breeder-card { flex-direction: column; }
+  .breeder-img-col { width: 100%; flex-direction: row; align-items: center; gap: 16px; }
+  .breeder-img { width: 90px; height: 90px; flex-shrink: 0; }
+  .breeder-img-name { text-align: left; }
+  #breeder-map { height: 230px; border-radius: 10px; }
+  .filter-options { gap: 10px; }
+  .filter-options label { font-size: 12.5px; }
+}
+
+/* Small phones */
+@media (max-width: 380px) {
+  .page-layout { padding: 16px 10px; }
+  #breeder-map { height: 200px; }
+  .featured-title { font-size: 1.3rem; }
+  .all-title { font-size: 1.2rem; }
+  .breeder-business-name { font-size: 17px; }
+  .breeder-bio { font-size: 13px; }
+  .breeder-img { width: 72px; height: 72px; }
+  .breeder-img-col { gap: 12px; }
+  .breeder-contact { flex-direction: column; align-items: flex-start; gap: 6px; }
+  .breeder-contact .contact-item {
+    border-right: none;
+    padding-right: 0;
+    margin-right: 0;
+    width: 100%;
+  }
+  .breeder-socials { gap: 10px; }
+  .social-icon svg { width: 20px; height: 20px; }
+}
+
+/* ─── Brand-compliance overrides (Brand Guideline v1.0) ───────────────────────
+   Readable text >= 14px (§4.4), 44px touch targets + focus ring (§9),
+   Quicksand everywhere (§4.1). Colors already mapped to brand tokens above. */
+#breeders-page .sidebar-label,
+#breeders-page .search-input,
+#breeders-page .filter-options label,
+#breeders-page .read-more-btn,
+#breeders-page .breeder-location,
+#breeders-page .breeder-contact { font-size: 14px; }
+#breeders-page .breeder-img-name,
+#breeders-page .badge-featured { font-size: 12px; }   /* caption tier, §4.3 */
+
+#breeders-page .filter-options label { min-height: 44px; }   /* §9 touch target */
+#breeders-page .view-profile-btn {
+  min-height: 44px;
+  display: inline-flex;
+  align-items: center;
+  padding: 10px 20px;
+  border-radius: 12px;              /* house radius §6.1 */
+  font-size: 16px;
+}
+#breeders-page .social-icon { min-width: 44px; min-height: 44px; }   /* §9 */
+
+/* Visible focus ring on every interactive element (§9) */
+#breeders-page a:focus-visible,
+#breeders-page button:focus-visible,
+#breeders-page input:focus-visible,
+#breeders-page summary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(32,148,177,0.35);
+  outline-offset: 2px;
+  border-radius: 8px;
+}
+
+/* ── F-11 · WCAG 2.5.5 — mobile touch targets ≥44×44 + ≥8px spacing ── */
+@media (max-width: 768px) {
+  .social-icon { min-width: 44px; min-height: 44px; }
+  .read-more-btn { min-height: 44px; padding: 8px 6px; }
+  .filter-group summary { min-height: 44px; }
+  .filter-options label { min-height: 44px; display: flex; align-items: center; gap: 8px; }
+  .breeder-contact .contact-item a { display: inline-flex; align-items: center; min-height: 44px; }
+}
+</style>
+
+<script>
+// const API = 'https://pomsky-backend.onrender.com';
+const FALLBACK_IMG = 'https://cdn.prod.website-files.com/69c531045fc78097dbda3982/6a0c1b1e37dbb768ae393ae1_Favicon%20512x512.png';
+
+let selectedState = '';
+let searchQuery = '';
+let allBreedersData = { featured: [], normal: [] };
+
+// Map variables
+let map = null;
+let markersLayer = null;
+
+// State coordinates and geocoding now live on the backend — see utils/usStates.js.
+// /breeder/meta/map-points returns US-only points with lat/lng already attached.
+
+function initMap() {
+  map = L.map('breeder-map').setView([39.8, -98.5], 4);
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png', {
+    attribution: '&copy; OpenStreetMap contributors',
+    maxZoom: 10, minZoom: 3
+  }).addTo(map);
+  markersLayer = L.layerGroup().addTo(map);
+
+  // Keep the map sized correctly when the layout reflows (e.g. rotation, resize)
+  window.addEventListener('resize', () => {
+    if (map) map.invalidateSize();
+  });
+}
+
+// The backend returns US-only points with coordinates already resolved, so the
+// map plots straight from one request — no geocoding, no per-location lookups.
+async function updateMap() {
+  if (!map) return;
+
+  try {
+    const url = `${API}/breeder/meta/map-points${selectedState ? `?state=${encodeURIComponent(selectedState)}` : ''}`;
+    const res = await fetch(url);
+    if (!res.ok) return;
+    const data = await res.json();
+    renderMapPoints(data.points || []);
+  } catch (e) {
+    console.error('Failed to load breeder map points', e);
+  }
+}
+
+function renderMapPoints(points) {
+  markersLayer.clearLayers();
+  const activeMarkers = [];
+
+  points.forEach(p => {
+    const icon = L.divIcon({
+      className: 'map-marker-custom',
+      html: `<div>${p.count}</div>`,
+      iconSize: [30, 30]
+    });
+
+    const marker = L.marker([p.lat, p.lng], { icon }).addTo(markersLayer);
+    activeMarkers.push(marker);
+
+    marker.bindTooltip(`${p.count} ${p.count === 1 ? 'Breeder' : 'Breeders'} in ${p.state}`, {
+      direction: 'top',
+      offset: [0, -10]
+    });
+
+    marker.on('click', () => {
+      const radio = document.querySelector(`input[name="state"][value="${p.state}"]`);
+      if (radio) {
+        radio.checked = true;
+        handleStateChange(p.state);
+      }
+    });
+  });
+
+  if (activeMarkers.length > 0) {
+    const group = new L.featureGroup(activeMarkers);
+    map.fitBounds(group.getBounds().pad(0.15));
+  }
+
+  if (map) setTimeout(() => map.invalidateSize(), 100);
+}
+
+function firstOf(val) {
+  if (!val) return null;
+  if (Array.isArray(val)) return val[0] || null;
+  return val;
+}
+
+function toggleBio(btn) {
+  const container = btn.parentElement;
+  const shortBio = container.querySelector('.short-bio');
+  const fullBio = container.querySelector('.full-bio');
+  if (shortBio.style.display === 'none') {
+    shortBio.style.display = 'block';
+    fullBio.style.display = 'none';
+    btn.textContent = 'Read More';
+  } else {
+    shortBio.style.display = 'none';
+    fullBio.style.display = 'block';
+    btn.textContent = 'Read Less';
+  }
+}
+
+function breederCardHTML(b, isFeatured) {
+  const imgUrl = firstOf(b.profile_image);
+  const img    = (imgUrl && imgUrl.startsWith('http')) ? imgUrl : FALLBACK_IMG;
+  const location = [b.city, b.state].filter(Boolean).join(', ');
+
+  const fbUrl  = firstOf(b.social_facebook);
+  const igUrl  = firstOf(b.social_instagram);
+  const twUrl  = firstOf(b.social_twitter);
+
+  const SVG = {
+    fb: `<svg width="22" height="22" viewBox="0 0 24 24" fill="#157A93"><path d="M22 12c0-5.52-4.48-10-10-10S2 6.48 2 12c0 4.84 3.44 8.87 8 9.8V15H8v-3h2V9.5C10 7.57 11.57 6 13.5 6H16v3h-2c-.55 0-1 .45-1 1v2h3v3h-3v6.95C18.05 21.45 22 17.19 22 12z"/></svg>`,
+    ig: `<svg width="22" height="22" viewBox="0 0 24 24" fill="#157A93"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 100 12.324 6.162 6.162 0 000-12.324zM12 16a4 4 0 110-8 4 4 0 010 8zm6.406-11.845a1.44 1.44 0 100 2.881 1.44 1.44 0 000-2.881z"/></svg>`,
+    tw: `<svg width="22" height="22" viewBox="0 0 24 24" fill="#157A93"><path d="M18.244 2.25h3.308l-7.227 8.26 8.502 11.24H16.17l-4.714-6.231-5.401 6.231H2.744l7.736-8.84L2.25 2.25h6.985l4.26 5.632zm-1.161 17.52h1.833L7.084 4.126H5.117z"/></svg>`,
+    web: `<svg width="22" height="22" viewBox="0 0 24 24" fill="#157A93"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-1 17.93c-3.95-.49-7-3.85-7-7.93 0-.62.08-1.21.21-1.79L9 15v1c0 1.1.9 2 2 2v1.93zm6.9-2.54c-.26-.81-1-1.39-1.9-1.39h-1v-3c0-.55-.45-1-1-1H8v-2h2c.55 0 1-.45 1-1V7h2c1.1 0 2-.9 2-2v-.41c2.93 1.19 5 4.06 5 7.41 0 2.08-.8 3.97-2.1 5.39z"/></svg>`,
+  };
+
+  const socialIcons = [
+    fbUrl     ? `<a href="${fbUrl}"     target="_blank" rel="noopener" class="social-icon" title="Facebook">${SVG.fb}</a>`   : '',
+    igUrl     ? `<a href="${igUrl}"     target="_blank" rel="noopener" class="social-icon" title="Instagram">${SVG.ig}</a>` : '',
+    twUrl     ? `<a href="${twUrl}"     target="_blank" rel="noopener" class="social-icon" title="Twitter/X">${SVG.tw}</a>` : '',
+    b.website ? `<a href="${b.website}" target="_blank" rel="noopener" class="social-icon" title="Website">${SVG.web}</a>`  : '',
+  ].join('');
+
+  const contactItems = [
+    b.breeder_name ? `<span class="contact-item">${b.breeder_name}</span>` : '',
+    b.phone   ? `<span class="contact-item">${b.phone}</span>` : '',
+    b.email   ? `<span class="contact-item"><a href="mailto:${b.email}">${b.email}</a></span>` : '',
+    b.website ? `<span class="contact-item"><a href="${b.website}" target="_blank" rel="noopener">${b.website.replace(/^https?:\/\//, '')}</a></span>` : '',
+  ].filter(Boolean).join('');
+
+  let bioHtml = '';
+  if (b.bio) {
+    const maxLength = 250;
+    if (b.bio.length > maxLength) {
+      const shortText = b.bio.substring(0, maxLength).trim() + '...';
+      bioHtml = `<div class="bio-container"><p class="breeder-bio short-bio">${shortText}</p><p class="breeder-bio full-bio" style="display:none;">${b.bio}</p><button class="read-more-btn" onclick="toggleBio(this)">Read More</button></div>`;
+    } else {
+      bioHtml = `<p class="breeder-bio" style="margin-bottom:12px;">${b.bio}</p>`;
+    }
+  }
+
+  return `
+    <div class="breeder-card">
+      <div class="breeder-img-col">
+        <img src="${img}" class="breeder-img" alt="${b.business_name || b.breeder_name || 'Breeder'}" onerror="this.onerror=null;this.src='${FALLBACK_IMG}';" />
+        <div class="breeder-img-name">${b.business_name || b.breeder_name || ''}</div>
+      </div>
+      <div class="breeder-info">
+        <div class="breeder-header"><span class="breeder-business-name">${b.business_name || b.breeder_name || 'Breeder'}</span>${isFeatured ? '<span class="badge-featured">Featured Breeder</span>' : ''}</div>
+        ${bioHtml}
+        ${location ? `<div class="breeder-location">${location}</div>` : ''}
+        ${contactItems ? `<div class="breeder-contact">${contactItems}</div>` : ''}
+        ${socialIcons ? `<div class="breeder-socials">${socialIcons}</div>` : ''}
+      </div>
+    </div>
+  `;
+}
+
+function handleSearch(val) {
+  searchQuery = val.toLowerCase();
+  renderFilteredBreeders();
+}
+
+function renderFilteredBreeders() {
+  const filterFn = b => {
+    const bn = (b.business_name || '').toLowerCase();
+    const n = (b.breeder_name || '').toLowerCase();
+    return bn.includes(searchQuery) || n.includes(searchQuery);
+  };
+  const f = allBreedersData.featured.filter(filterFn);
+  const n = allBreedersData.normal.filter(filterFn);
+  renderBreeders('featured-section', f, true);
+  renderBreeders('other-section', n, false);
+}
+
+function renderBreeders(containerId, breeders, isFeatured) {
+  const el = document.getElementById(containerId);
+  if (!breeders || !breeders.length) {
+    el.innerHTML = '<p class="no-results">No breeders found.</p>';
+    return;
+  }
+  el.innerHTML = breeders.map(b => breederCardHTML(b, isFeatured)).join('');
+}
+
+async function loadBreeders() {
+  document.getElementById('featured-section').innerHTML = '<p class="no-results">Loading...</p>';
+  try {
+    const url = `${API}/breeder${selectedState ? `?state=${encodeURIComponent(selectedState)}` : ''}`;
+    const res = await fetch(url, { credentials: 'include' });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    allBreedersData = { featured: data.featured || [], normal: data.normal || [] };
+    renderFilteredBreeders();
+    updateMap();
+  } catch (err) {
+    console.error('Breeder load error:', err);
+  }
+}
+
+async function loadStates() {
+  try {
+    const res  = await fetch(`${API}/breeder/meta/states`);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const data = await res.json();
+    const list = document.getElementById('state-list');
+    const stateOptions = (data.states || []).map(s => `<label><input type="radio" name="state" value="${s}" onchange="handleStateChange(this.value)"> ${s}</label>`).join('');
+    list.innerHTML = `<label><input type="radio" name="state" value="" checked onchange="handleStateChange('')"> All States</label>${stateOptions}`;
+  } catch (err) { console.error('State load error:', err); }
+}
+
+function handleStateChange(val) {
+  selectedState = val;
+  loadBreeders();
+}
+
+initMap();
+loadStates();
+loadBreeders();
+</script>
